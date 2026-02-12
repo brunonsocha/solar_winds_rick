@@ -1,6 +1,9 @@
 package internal
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -74,17 +77,93 @@ type SearchPayload struct {
 }
 
 func (c *CharacterService) GetPayload(term string, limit int) (*SearchPayload, error) {
-	// spawn 3 goroutines
+	characters, err := c.getCharacterData(term)
+	if err != nil {
+		return nil, err
+	}
+	locations, err := c.getLocationData(term)
+	if err != nil {
+		return nil, err
+	}
+	episodes, err := c.getEpisodeData(term)
+	if err != nil {
+		return nil, err
+	}
+	var results []SearchResult
+	for _, i := range characters {
+		results = append(results, SearchResult{
+			Name: i.Name,
+			Type: "character",
+			Url: i.Url,
+		})
+	}
+	for _, i := range locations {
+		results = append(results, SearchResult{
+			Name: i.Name,
+			Type: "location",
+			Url: i.Url,
+		})
+	}
+	for _, i := range episodes {
+		results = append(results, SearchResult{
+			Name: i.Name,
+			Type: "episode",
+			Url: i.Url,
+		})
+	}
+	return &SearchPayload{Info: results}
 }
 
-func getCharacterData(term string) ([]CharacterRes, error){
-	
+func (c * CharacterService) getCharacterData(term string) ([]CharacterRes, error){
+	fullUrl := fmt.Sprintf("%s/character/?name=%s", c.Url, term)
+	response, err := c.Client.Get(fullUrl)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	var apiRes ApiRes
+	jsonBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
+		return nil, err
+	}
+	return apiRes.Results
 }
 
-func getLocationData(term string) ([]LocationRes, error) {
-
+func (c *CharacterService) getLocationData(term string) ([]LocationRes, error) {
+	fullUrl := fmt.Sprintf("%s/location/?name=%s", c.Url, term)
+	response, err := c.Client.Get(fullUrl)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	var apiRes ApiRes
+	jsonBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
+		return nil, err
+	}
+	return apiRes.Results
 }
 
-func getEpisodeData(term string) ([]EpisodeRes, error) {
-
+func (c *CharacterService) getEpisodeData(term string) ([]EpisodeRes, error) {
+	fullUrl := fmt.Sprintf("%s/episode/?name=%s", c.Url, term)
+	response, err := c.Client.Get(fullUrl)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	var apiRes ApiRes
+	jsonBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
+		return nil, err
+	}
+	return apiRes.Results
 }
