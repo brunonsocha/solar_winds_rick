@@ -1,10 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
+	"staz_morty/internal"
 	"time"
+	"os"
 )
 
 type application struct {
@@ -29,7 +30,8 @@ func main() {
 	}
 	srv := &http.Server{
 		Addr: ":8080",
-		Handler: app.routes()
+		Handler: app.routes(),
 	}
+	app.infoLog.Printf("Starting server on %s", srv.Addr)
 	srv.ListenAndServe()
 }

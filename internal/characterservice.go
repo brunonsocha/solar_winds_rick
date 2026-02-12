@@ -13,9 +13,19 @@ type CharacterService struct {
 	Url string
 }
 
-type ApiRes struct {
+type ApiCharRes struct {
 	Info InfoRes `json:"info"`
-	Results []struct{} `json:"results"` 
+	Results []CharacterRes `json:"results"` 
+}
+
+type ApiLocRes struct {
+	Info InfoRes `json:"info"`
+	Results []LocationRes `json:"results"`
+}
+
+type ApiEpRes struct {
+	Info InfoRes `json:"info"`
+	Results []EpisodeRes `json:"results"`
 }
 
 type InfoRes struct {
@@ -76,7 +86,7 @@ type SearchPayload struct {
 	Info []SearchResult 
 }
 
-func (c *CharacterService) GetPayload(term string, limit int) (*SearchPayload, error) {
+func (c *CharacterService) GetPayload(term string) (*SearchPayload, error) {
 	characters, err := c.getCharacterData(term)
 	if err != nil {
 		return nil, err
@@ -111,7 +121,7 @@ func (c *CharacterService) GetPayload(term string, limit int) (*SearchPayload, e
 			Url: i.Url,
 		})
 	}
-	return &SearchPayload{Info: results}
+	return &SearchPayload{Info: results}, nil
 }
 
 func (c * CharacterService) getCharacterData(term string) ([]CharacterRes, error){
@@ -120,8 +130,12 @@ func (c * CharacterService) getCharacterData(term string) ([]CharacterRes, error
 	if err != nil {
 		return nil, err
 	}
+	if response.StatusCode == http.StatusNotFound {
+		return []CharacterRes{}, nil
+	}
+	// could check for status code as well, but the unmarshal will throw an error anyway
 	defer response.Body.Close()
-	var apiRes ApiRes
+	var apiRes ApiCharRes
 	jsonBody, err := io.ReadAll(response.Body)
 	if err != nil {
 		return nil, err
@@ -129,7 +143,7 @@ func (c * CharacterService) getCharacterData(term string) ([]CharacterRes, error
 	if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
 		return nil, err
 	}
-	return apiRes.Results
+	return apiRes.Results, nil
 }
 
 func (c *CharacterService) getLocationData(term string) ([]LocationRes, error) {
@@ -138,8 +152,11 @@ func (c *CharacterService) getLocationData(term string) ([]LocationRes, error) {
 	if err != nil {
 		return nil, err
 	}
+	if response.StatusCode == http.StatusNotFound {
+		return []LocationRes{}, nil
+	}
 	defer response.Body.Close()
-	var apiRes ApiRes
+	var apiRes ApiLocRes
 	jsonBody, err := io.ReadAll(response.Body)
 	if err != nil {
 		return nil, err
@@ -147,7 +164,7 @@ func (c *CharacterService) getLocationData(term string) ([]LocationRes, error) {
 	if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
 		return nil, err
 	}
-	return apiRes.Results
+	return apiRes.Results, nil
 }
 
 func (c *CharacterService) getEpisodeData(term string) ([]EpisodeRes, error) {
@@ -156,8 +173,11 @@ func (c *CharacterService) getEpisodeData(term string) ([]EpisodeRes, error) {
 	if err != nil {
 		return nil, err
 	}
+	if response.StatusCode == http.StatusNotFound {
+		return []EpisodeRes{}, nil
+	}
 	defer response.Body.Close()
-	var apiRes ApiRes
+	var apiRes ApiEpRes
 	jsonBody, err := io.ReadAll(response.Body)
 	if err != nil {
 		return nil, err
@@ -165,5 +185,5 @@ func (c *CharacterService) getEpisodeData(term string) ([]EpisodeRes, error) {
 	if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
 		return nil, err
 	}
-	return apiRes.Results
+	return apiRes.Results, nil
 }
