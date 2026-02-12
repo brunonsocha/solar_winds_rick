@@ -11,7 +11,7 @@ import (
 type application struct {
 	infoLog *log.Logger
 	errorLog *log.Logger
-	characterService *internal.CharacterService
+	characterService *internal.SearchService
 }
 
 
@@ -19,7 +19,7 @@ func main() {
 	infoLog := log.New(os.Stdout, "[INFO]\t", log.Ltime)
 	errorLog := log.New(os.Stderr, "[BŁĄD]\t", log.Ltime)
 	httpClient := &http.Client{Timeout: 10*time.Second}
-	service := &internal.CharacterService{
+	service := &internal.SearchService{
 		Client: httpClient,
 		Url: "https://rickandmortyapi.com/api",
 	}

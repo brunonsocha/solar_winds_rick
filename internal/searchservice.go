@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-type CharacterService struct {
+type SearchService struct {
 	Client *http.Client
 	Url string
 }
@@ -83,38 +83,72 @@ type SearchResult struct {
 	Url string `json:"url"`
 }
 
-func (c *CharacterService) GetPayload(term string, limit int) ([]SearchResult, error) {
+type IdPair struct {
+	Character1 int
+	Character2 int
+}
+
+type PairsResult struct {
+	Character1 struct {
+		Name string `json:"name"`
+		Url string `json:"url"`
+	} `json:"character2"`
+	Character2 struct {
+		Name string `json:"name"`
+		Url string `json:"url"`
+	} `json:"character2"`
+	Episodes int `json:"episodes"`
+}
+
+func (s *SearchService) GetSearchPayload(term string, limit int) ([]SearchResult, error) {
 	resultChan := make(chan SearchResult, limit)
+	done := make(chan struct{})
+	defer close(done)
 	var results []SearchResult
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		chars, err := c.getCharacterData(term)
+		defer wg.Done()
+		chars, err := s.getCharacterData(term)
 		if err != nil {
 			return
 		}
 		for _, i := range chars {
-			resultChan <- SearchResult{Name: i.Name, Type: "character", Url: i.Url}
+			select {
+			case resultChan <- SearchResult{Name: i.Name, Type: "character", Url: i.Url}:
+			case <- done:
+			return
+			}
 		}
 	}()	
 	wg.Add(1)
 	go func() {
-		locs, err := c.getLocationData(term)
+		defer wg.Done()
+		locs, err := s.getLocationData(term)
 		if err != nil {
 			return
 		}
 		for _, i := range locs {
-			resultChan <- SearchResult{Name: i.Name, Type: "location", Url: i.Url}
+			select {
+			case resultChan <- SearchResult{Name: i.Name, Type: "location", Url: i.Url}:
+			case <- done:
+				return
+			}
 		}
 	}()	
 	wg.Add(1)
 	go func() {
-		eps, err := c.getEpisodeData(term)
+		defer wg.Done()
+		eps, err := s.getEpisodeData(term)
 		if err != nil {
 			return
 		}
 		for _, i := range eps {
-			resultChan <- SearchResult{Name: i.Name, Type: "episode", Url: i.Url}
+			select {
+			case resultChan <- SearchResult{Name: i.Name, Type: "episode", Url: i.Url}:
+			case <- done:
+				return
+			}
 		}
 	}()	
 	go func() {
@@ -130,17 +164,17 @@ func (c *CharacterService) GetPayload(term string, limit int) ([]SearchResult, e
 	return results, nil
 }
 
-func (c * CharacterService) getCharacterData(term string) ([]CharacterRes, error){
-	fullUrl := fmt.Sprintf("%s/character/?name=%s", c.Url, term)
-	response, err := c.Client.Get(fullUrl)
+func (s * SearchService) getCharacterData(term string) ([]CharacterRes, error){
+	fullUrl := fmt.Sprintf("%s/character/?name=%s", s.Url, term)
+	response, err := s.Client.Get(fullUrl)
 	if err != nil {
 		return nil, err
 	}
+	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
 		return []CharacterRes{}, nil
 	}
 	// could check for status code as well, but the unmarshal will throw an error anyway
-	defer response.Body.Close()
 	var apiRes ApiCharRes
 	jsonBody, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -152,16 +186,16 @@ func (c * CharacterService) getCharacterData(term string) ([]CharacterRes, error
 	return apiRes.Results, nil
 }
 
-func (c *CharacterService) getLocationData(term string) ([]LocationRes, error) {
-	fullUrl := fmt.Sprintf("%s/location/?name=%s", c.Url, term)
-	response, err := c.Client.Get(fullUrl)
+func (s *SearchService) getLocationData(term string) ([]LocationRes, error) {
+	fullUrl := fmt.Sprintf("%s/location/?name=%s", s.Url, term)
+	response, err := s.Client.Get(fullUrl)
 	if err != nil {
 		return nil, err
 	}
+	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
 		return []LocationRes{}, nil
 	}
-	defer response.Body.Close()
 	var apiRes ApiLocRes
 	jsonBody, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -173,16 +207,16 @@ func (c *CharacterService) getLocationData(term string) ([]LocationRes, error) {
 	return apiRes.Results, nil
 }
 
-func (c *CharacterService) getEpisodeData(term string) ([]EpisodeRes, error) {
-	fullUrl := fmt.Sprintf("%s/episode/?name=%s", c.Url, term)
-	response, err := c.Client.Get(fullUrl)
+func (s *SearchService) getEpisodeData(term string) ([]EpisodeRes, error) {
+	fullUrl := fmt.Sprintf("%s/episode/?name=%s", s.Url, term)
+	response, err := s.Client.Get(fullUrl)
 	if err != nil {
 		return nil, err
 	}
+	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
 		return []EpisodeRes{}, nil
 	}
-	defer response.Body.Close()
 	var apiRes ApiEpRes
 	jsonBody, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -192,4 +226,17 @@ func (c *CharacterService) getEpisodeData(term string) ([]EpisodeRes, error) {
 		return nil, err
 	}
 	return apiRes.Results, nil
+}
+
+func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResult, error) {
+	episodes, err := s.getEpisodeData("")
+	var characterPairs map[]
+	if err != nil {
+		return nil, err
+	}
+	for _, i := range episodes {
+		for _, j := range i.Characters {
+			
+		}
+	}
 }
