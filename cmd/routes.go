@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 )
 
 func (app *application) routes() http.Handler {
@@ -16,7 +17,14 @@ func (app *application) routes() http.Handler {
 
 func (app *application) search(w http.ResponseWriter, r *http.Request) {
 	term := r.URL.Query().Get("term")
-	payload, err := app.characterService.GetPayload(term)
+	limit := r.URL.Query().Get("limit")
+	limitInt, err := strconv.Atoi(limit)
+	if err != nil {
+		app.errorLog.Println(err)
+		http.Error(w, "incorrect limit", http.StatusBadRequest)
+		return
+	}
+	payload, err := app.characterService.GetPayload(term, limitInt)
 	if err != nil {
 		app.errorLog.Println(err)
 		http.Error(w, "error processing payload", http.StatusInternalServerError)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -82,46 +83,51 @@ type SearchResult struct {
 	Url string `json:"url"`
 }
 
-type SearchPayload struct {
-	Info []SearchResult 
-}
-
-func (c *CharacterService) GetPayload(term string) (*SearchPayload, error) {
-	characters, err := c.getCharacterData(term)
-	if err != nil {
-		return nil, err
-	}
-	locations, err := c.getLocationData(term)
-	if err != nil {
-		return nil, err
-	}
-	episodes, err := c.getEpisodeData(term)
-	if err != nil {
-		return nil, err
-	}
+func (c *CharacterService) GetPayload(term string, limit int) ([]SearchResult, error) {
+	resultChan := make(chan SearchResult, limit)
 	var results []SearchResult
-	for _, i := range characters {
-		results = append(results, SearchResult{
-			Name: i.Name,
-			Type: "character",
-			Url: i.Url,
-		})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		chars, err := c.getCharacterData(term)
+		if err != nil {
+			return
+		}
+		for _, i := range chars {
+			resultChan <- SearchResult{Name: i.Name, Type: "character", Url: i.Url}
+		}
+	}()	
+	wg.Add(1)
+	go func() {
+		locs, err := c.getLocationData(term)
+		if err != nil {
+			return
+		}
+		for _, i := range locs {
+			resultChan <- SearchResult{Name: i.Name, Type: "location", Url: i.Url}
+		}
+	}()	
+	wg.Add(1)
+	go func() {
+		eps, err := c.getEpisodeData(term)
+		if err != nil {
+			return
+		}
+		for _, i := range eps {
+			resultChan <- SearchResult{Name: i.Name, Type: "episode", Url: i.Url}
+		}
+	}()	
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+	for i := range resultChan{
+		results = append(results, i)
+		if len(results) == limit {
+			break
+		}
 	}
-	for _, i := range locations {
-		results = append(results, SearchResult{
-			Name: i.Name,
-			Type: "location",
-			Url: i.Url,
-		})
-	}
-	for _, i := range episodes {
-		results = append(results, SearchResult{
-			Name: i.Name,
-			Type: "episode",
-			Url: i.Url,
-		})
-	}
-	return &SearchPayload{Info: results}, nil
+	return results, nil
 }
 
 func (c * CharacterService) getCharacterData(term string) ([]CharacterRes, error){
