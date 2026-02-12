@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -88,11 +90,16 @@ type IdPair struct {
 	Character2 int
 }
 
+type PairStats struct {
+	Pair IdPair
+	Count int
+}
+
 type PairsResult struct {
 	Character1 struct {
 		Name string `json:"name"`
 		Url string `json:"url"`
-	} `json:"character2"`
+	} `json:"character1"`
 	Character2 struct {
 		Name string `json:"name"`
 		Url string `json:"url"`
@@ -100,6 +107,7 @@ type PairsResult struct {
 	Episodes int `json:"episodes"`
 }
 
+// didn't notice pagination. will fix
 func (s *SearchService) GetSearchPayload(term string, limit int) ([]SearchResult, error) {
 	resultChan := make(chan SearchResult, limit)
 	done := make(chan struct{})
@@ -230,13 +238,104 @@ func (s *SearchService) getEpisodeData(term string) ([]EpisodeRes, error) {
 
 func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResult, error) {
 	episodes, err := s.getEpisodeData("")
-	var characterPairs map[]
+	characterPairs := make(map[IdPair]int)
+	charactersToRetrieve := make(map[int]bool)
+	var result []PairsResult
+	var idsToRetrieve []int
+	var pairStats []PairStats
 	if err != nil {
 		return nil, err
 	}
-	for _, i := range episodes {
-		for _, j := range i.Characters {
-			
+	for _, ep := range episodes {
+		var charIDs []int
+		for _, charUrl := range ep.Characters {
+			// will make regex for this later
+			id, err := strconv.Atoi(charUrl[42:])
+			if err != nil {
+				return nil, err
+			}
+			charIDs = append(charIDs, id)
+		}
+		for i := 0; i < len(charIDs); i++ {
+			for j := i+1; j < len(charIDs); j++ {
+				id1 := charIDs[i]
+				id2 := charIDs[j]
+				pair := IdPair{
+					Character1: min(id1, id2),
+					Character2: max(id1, id2),
+				}
+				characterPairs[pair]++
+			}
 		}
 	}
+	for k, v := range characterPairs {
+		if v >= minVal && v <= maxVal {
+			pairStats = append(pairStats, PairStats{Pair: k, Count: v})
+		}
+	}
+	sort.Slice(pairStats, func(i, j int) bool{
+		return pairStats[i].Count > pairStats[j].Count
+	})
+	if limit > 0 && len(pairStats) > limit {
+		pairStats = pairStats[:limit]
+	}
+	for _, i := range pairStats {
+		charactersToRetrieve[i.Pair.Character1] = true
+		charactersToRetrieve[i.Pair.Character2] = true
+	}
+	for id, _ := range charactersToRetrieve {
+		idsToRetrieve = append(idsToRetrieve, id)
+	}
+	names := s.getCharacters(idsToRetrieve)
+	for _, stat := range pairStats {
+		p := PairsResult{}
+		p.Character1.Name = names[stat.Pair.Character1]
+		p.Character1.Url = fmt.Sprintf("%s/character/%d", s.Url, stat.Pair.Character1)
+		p.Character2.Name = names[stat.Pair.Character2]
+		p.Character2.Url = fmt.Sprintf("%s/character/%d", s.Url, stat.Pair.Character2)
+		p.Episodes = stat.Count
+		result = append(result, p)
+	}
+	return result, nil
+}
+
+func (s *SearchService) getCharacters(characterIds []int) map[int]string {
+	chars := ""
+	result := make(map[int]string)
+	if len(characterIds) == 0 {
+		return result
+	}
+	for _, i := range characterIds {
+		chars += fmt.Sprintf("%d,", i)
+	}
+	chars = chars[:(len(chars)-1)]
+	fullUrl := fmt.Sprintf("%s/character/%s", s.Url, chars)
+	response, err := s.Client.Get(fullUrl)
+	if err != nil {
+		return nil
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	jsonBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil
+	}
+	if len(characterIds) == 1 {
+		var char CharacterRes
+		if err := json.Unmarshal(jsonBody, &char); err != nil {
+			return nil
+		}
+		result[char.Id] = char.Name
+	} else {
+		var chars []CharacterRes
+		if err := json.Unmarshal(jsonBody, &chars); err != nil {
+			return nil
+		}
+		for _, char := range chars {
+			result[char.Id] = char.Name
+		}
+	}
+	return result
 }
