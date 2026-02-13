@@ -35,6 +35,7 @@ type ApiEpRes struct {
 type InfoRes struct {
 	Count int `json:"count"`
 	Pages int `json:"pages"`
+	// pointers to handle nulls
 	Next *string `json:"next"`
 	Prev *string `json:"prev"`
 }
@@ -109,11 +110,14 @@ type PairsResult struct {
 }
 
 func (s *SearchService) GetSearchPayload(term string, limit int) ([]SearchResult, error) {
+	// create a channel for structs and for singalling that we're done
 	resultChan := make(chan SearchResult, limit)
 	done := make(chan struct{})
+	// close done on function return to end goroutines
 	defer close(done)
 	var results []SearchResult
 	var wg sync.WaitGroup
+	// spawn goroutines to search for characters, eps and locations
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -129,6 +133,7 @@ func (s *SearchService) GetSearchPayload(term string, limit int) ([]SearchResult
 		defer wg.Done()
 		s.getEpisodeData(term, resultChan, done)
 	}()	
+	// wait for goroutines to finish and close the result chan
 	go func() {
 		wg.Wait()
 		close(resultChan)
@@ -142,8 +147,11 @@ func (s *SearchService) GetSearchPayload(term string, limit int) ([]SearchResult
 	return results, nil
 }
 
+// comments in this function apply to location and episode functions as well, they're virtually identical
+// maybe there's room to use generics here?
 func (s * SearchService) getCharacterData(term string, results chan<- SearchResult, done <-chan struct{}) {
 	fullUrl := fmt.Sprintf("%s/character/?name=%s", s.Url, url.QueryEscape(term))
+	// loop for pagination
 	for fullUrl != ""{
 		response, err := s.Client.Get(fullUrl)
 		if err != nil {
@@ -159,6 +167,7 @@ func (s * SearchService) getCharacterData(term string, results chan<- SearchResu
 			return
 		}
 		response.Body.Close()
+		// iterate over results, send them to the results chan, check if we're done
 		for _, i := range apiRes.Results {
 			select {
 			case results <- SearchResult{Name: i.Name, Type: "character", Url: i.Url}:
@@ -166,6 +175,7 @@ func (s * SearchService) getCharacterData(term string, results chan<- SearchResu
 				return
 			}
 		}
+		// proceed to the next url if there is one
 		if apiRes.Info.Next != nil {
 			fullUrl = *apiRes.Info.Next
 		} else {
@@ -241,19 +251,24 @@ func (s *SearchService) getEpisodeData(term string, results chan<- SearchResult,
 }
 
 func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResult, error) {
+	// use a helper function that gets ALL episodes
 	episodes, err := s.getAllEpisodes("")
+	// map of structs holding pairs + occurences
 	characterPairs := make(map[IdPair]int)
+	// basically a set:
 	charactersToRetrieve := make(map[int]struct{})
 	var result []PairsResult
+	// what we'll feed to the getCharacters function
 	var idsToRetrieve []int
+	// slice of structs with similar structure to the characterPairs map - for sorting
 	var pairStats []PairStats
 	if err != nil {
 		return nil, err
 	}
+	// create a list of character IDs, populate the map with pairs 
 	for _, ep := range episodes {
 		var charIDs []int
 		for _, charUrl := range ep.Characters {
-			// no regex needed
 			id, err := strconv.Atoi(path.Base(charUrl))
 			if err != nil {
 				return nil, err
@@ -264,6 +279,7 @@ func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResul
 			for j := i+1; j < len(charIDs); j++ {
 				id1 := charIDs[i]
 				id2 := charIDs[j]
+				// make sure that if the pair consists of the same characters, it's always the same
 				pair := IdPair{
 					Character1: min(id1, id2),
 					Character2: max(id1, id2),
@@ -272,21 +288,26 @@ func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResul
 			}
 		}
 	}
+	// filter out pairs with occurences that don't fit within our min/max parameters
 	for k, v := range characterPairs {
 		if v >= minVal && v <= maxVal {
 			pairStats = append(pairStats, PairStats{Pair: k, Count: v})
 		}
 	}
+	// we can sort the slice, couldn't do so with the map
 	sort.Slice(pairStats, func(i, j int) bool{
 		return pairStats[i].Count > pairStats[j].Count
 	})
+	// limit cut off
 	if limit > 0 && len(pairStats) > limit {
 		pairStats = pairStats[:limit]
 	}
+	// use the set for checking what names we should get
 	for _, i := range pairStats {
 		charactersToRetrieve[i.Pair.Character1] = struct{}{}
 		charactersToRetrieve[i.Pair.Character2] = struct{}{}
 	}
+	// get a slice out of them
 	for id, _ := range charactersToRetrieve {
 		idsToRetrieve = append(idsToRetrieve, id)
 	}
@@ -294,6 +315,7 @@ func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResul
 	if err != nil {
 		return nil, err
 	}
+	// populate results
 	for _, stat := range pairStats {
 		p := PairsResult{}
 		p.Character1.Name = names[stat.Pair.Character1]
@@ -351,7 +373,7 @@ func (s *SearchService) getCharacters(characterIds []int) (map[int]string, error
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
-		return nil, nil
+		return map[int]string{}, nil
 	}
 
 	if len(characterIds) == 1 {
@@ -360,6 +382,7 @@ func (s *SearchService) getCharacters(characterIds []int) (map[int]string, error
 			return nil, err
 		}
 		result[char.Id] = char.Name
+		return result, nil
 	}
 	var charList []CharacterRes
 	if err := json.NewDecoder(response.Body).Decode(&charList); err != nil {
