@@ -37,7 +37,9 @@ func (app *application) search(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err = json.NewEncoder(w).Encode(payload); err != nil {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "\t")
+	if err = encoder.Encode(payload); err != nil {
 		app.errorLog.Println(err)
 		http.Error(w, "error providing a response", http.StatusInternalServerError)
 	}
@@ -92,7 +94,9 @@ func (app *application) topPairs(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err = json.NewEncoder(w).Encode(payload); err != nil {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "\t")
+	if err = encoder.Encode(payload); err != nil {
 		app.errorLog.Println(err)
 		http.Error(w, "error providing a response", http.StatusInternalServerError)
 	}

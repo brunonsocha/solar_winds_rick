@@ -3,7 +3,6 @@ package internal
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -155,14 +154,11 @@ func (s * SearchService) getCharacterData(term string, results chan<- SearchResu
 			return
 		}
 		var apiRes ApiCharRes
-		jsonBody, err := io.ReadAll(response.Body)
+		if err := json.NewDecoder(response.Body).Decode(&apiRes); err != nil {
+			response.Body.Close()
+			return
+		}
 		response.Body.Close()
-		if err != nil {
-			return
-		}
-		if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
-			return
-		}
 		for _, i := range apiRes.Results {
 			select {
 			case results <- SearchResult{Name: i.Name, Type: "character", Url: i.Url}:
@@ -191,14 +187,11 @@ func (s *SearchService) getLocationData(term string, results chan<- SearchResult
 			return
 		}
 		var apiRes ApiLocRes
-		jsonBody, err := io.ReadAll(response.Body)
+		if err := json.NewDecoder(response.Body).Decode(&apiRes); err != nil {
+			response.Body.Close()
+			return
+		}
 		response.Body.Close()
-		if err != nil {
-			return
-		}
-		if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
-			return
-		}
 		for _, i := range apiRes.Results {
 			select {
 			case results <- SearchResult{Name: i.Name, Type: "location", Url: i.Url}:
@@ -226,14 +219,11 @@ func (s *SearchService) getEpisodeData(term string, results chan<- SearchResult,
 			return
 		}
 		var apiRes ApiEpRes
-		jsonBody, err := io.ReadAll(response.Body)
+		if err := json.NewDecoder(response.Body).Decode(&apiRes); err != nil {
+			response.Body.Close()
+			return
+		}
 		response.Body.Close()
-		if err != nil {
-			return
-		}
-		if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
-			return
-		}
 		for _, i := range apiRes.Results {
 			select {
 			case results <- SearchResult{Name: i.Name, Type: "episode", Url: i.Url}:
@@ -329,14 +319,11 @@ func (s *SearchService) getAllEpisodes(term string) ([]EpisodeRes, error){
 			return results, nil
 		}
 		var apiRes ApiEpRes
-		jsonBody, err := io.ReadAll(response.Body)
+		if err := json.NewDecoder(response.Body).Decode(&apiRes); err != nil {
+			response.Body.Close()
+			return results, nil
+		}
 		response.Body.Close()
-		if err != nil {
-			return results, err
-		}
-		if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
-			return results, err
-		}
 		results = append(results, apiRes.Results...)
 		if apiRes.Info.Next != nil {
 			fullUrl = *apiRes.Info.Next
@@ -346,6 +333,7 @@ func (s *SearchService) getAllEpisodes(term string) ([]EpisodeRes, error){
 	}
 	return results, nil
 }
+
 func (s *SearchService) getCharacters(characterIds []int) (map[int]string, error) {
 	chars := ""
 	result := make(map[int]string)
@@ -365,24 +353,20 @@ func (s *SearchService) getCharacters(characterIds []int) (map[int]string, error
 	if response.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
-	jsonBody, err := io.ReadAll(response.Body)
-	if err != nil {
-		return nil, err
-	}
+
 	if len(characterIds) == 1 {
 		var char CharacterRes
-		if err := json.Unmarshal(jsonBody, &char); err != nil {
+		if err := json.NewDecoder(response.Body).Decode(&char); err != nil {
 			return nil, err
 		}
 		result[char.Id] = char.Name
-	} else {
-		var chars []CharacterRes
-		if err := json.Unmarshal(jsonBody, &chars); err != nil {
-			return nil, err
-		}
-		for _, char := range chars {
-			result[char.Id] = char.Name
-		}
+	}
+	var charList []CharacterRes
+	if err := json.NewDecoder(response.Body).Decode(&charList); err != nil {
+		return nil, err
+	}
+	for _, char := range charList {
+		result[char.Id] = char.Name
 	}
 	return result, nil
 }
