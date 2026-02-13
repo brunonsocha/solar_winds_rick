@@ -36,6 +36,7 @@ func (app *application) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	if err = json.NewEncoder(w).Encode(payload); err != nil {
 		app.errorLog.Println(err)
 		http.Error(w, "error providing a response", http.StatusInternalServerError)
@@ -65,6 +66,11 @@ func (app *application) topPairs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "incorrect max parameter", http.StatusBadRequest)
 		return
 	}
+	if minVal > maxVal {
+		app.errorLog.Println(fmt.Errorf("min parameter can't be higher than the max parameter"))
+		http.Error(w, "min can't be higher than max", http.StatusBadRequest)
+		return
+	}
 	limit = 20
 	if limitStr != "" {
 		var err error
@@ -85,6 +91,7 @@ func (app *application) topPairs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	if err = json.NewEncoder(w).Encode(payload); err != nil {
 		app.errorLog.Println(err)
 		http.Error(w, "error providing a response", http.StatusInternalServerError)

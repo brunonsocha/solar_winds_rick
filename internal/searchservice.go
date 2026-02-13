@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"sort"
 	"strconv"
@@ -143,7 +144,7 @@ func (s *SearchService) GetSearchPayload(term string, limit int) ([]SearchResult
 }
 
 func (s * SearchService) getCharacterData(term string, results chan<- SearchResult, done <-chan struct{}) {
-	fullUrl := fmt.Sprintf("%s/character/?name=%s", s.Url, term)
+	fullUrl := fmt.Sprintf("%s/character/?name=%s", s.Url, url.QueryEscape(term))
 	for fullUrl != ""{
 		response, err := s.Client.Get(fullUrl)
 		if err != nil {
@@ -179,7 +180,7 @@ func (s * SearchService) getCharacterData(term string, results chan<- SearchResu
 }
 
 func (s *SearchService) getLocationData(term string, results chan<- SearchResult, done <-chan struct{}) {
-	fullUrl := fmt.Sprintf("%s/location/?name=%s", s.Url, term)
+	fullUrl := fmt.Sprintf("%s/location/?name=%s", s.Url, url.QueryEscape(term))
 	for fullUrl != ""{
 		response, err := s.Client.Get(fullUrl)
 		if err != nil {
@@ -214,7 +215,7 @@ func (s *SearchService) getLocationData(term string, results chan<- SearchResult
 }
 
 func (s *SearchService) getEpisodeData(term string, results chan<- SearchResult, done <-chan struct{}) {
-	fullUrl := fmt.Sprintf("%s/episode/?name=%s", s.Url, term)
+	fullUrl := fmt.Sprintf("%s/episode/?name=%s", s.Url, url.QueryEscape(term))
 	for fullUrl != ""{
 		response, err := s.Client.Get(fullUrl)
 		if err != nil {
@@ -252,7 +253,6 @@ func (s *SearchService) getEpisodeData(term string, results chan<- SearchResult,
 func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResult, error) {
 	episodes, err := s.getAllEpisodes("")
 	characterPairs := make(map[IdPair]int)
-	// think i could just pass an empty struct here?
 	charactersToRetrieve := make(map[int]struct{})
 	var result []PairsResult
 	var idsToRetrieve []int
@@ -317,7 +317,7 @@ func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResul
 }
 
 func (s *SearchService) getAllEpisodes(term string) ([]EpisodeRes, error){
-	fullUrl := fmt.Sprintf("%s/episode/?name=%s", s.Url, term)
+	fullUrl := fmt.Sprintf("%s/episode/?name=%s", s.Url, url.QueryEscape(term))
 	var results []EpisodeRes
 	for fullUrl != ""{
 		response, err := s.Client.Get(fullUrl)
