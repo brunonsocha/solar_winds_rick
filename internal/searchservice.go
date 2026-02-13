@@ -117,17 +117,7 @@ func (s *SearchService) GetSearchPayload(term string, limit int) ([]SearchResult
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		chars, err := s.getCharacterData(term)
-		if err != nil {
-			return
-		}
-		for _, i := range chars {
-			select {
-			case resultChan <- SearchResult{Name: i.Name, Type: "character", Url: i.Url}:
-			case <- done:
-			return
-			}
-		}
+		s.getCharacterData(term, resultChan, done)
 	}()	
 	wg.Add(1)
 	go func() {
@@ -166,32 +156,45 @@ func (s *SearchService) GetSearchPayload(term string, limit int) ([]SearchResult
 	for i := range resultChan{
 		results = append(results, i)
 		if len(results) == limit {
-			break
+			return results, nil
 		}
 	}
 	return results, nil
 }
 
-func (s * SearchService) getCharacterData(term string) ([]CharacterRes, error){
+func (s * SearchService) getCharacterData(term string, results chan<- SearchResult, done <-chan struct{}) {
 	fullUrl := fmt.Sprintf("%s/character/?name=%s", s.Url, term)
-	response, err := s.Client.Get(fullUrl)
-	if err != nil {
-		return nil, err
+	for fullUrl != ""{
+		response, err := s.Client.Get(fullUrl)
+		if err != nil {
+			return 
+		}
+		if response.StatusCode != http.StatusOK {
+			response.Body.Close()
+		}
+		var apiRes ApiCharRes
+		jsonBody, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil {
+			return
+		}
+		if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
+			return
+		}
+		for _, i := range apiRes.Results {
+			select {
+			case results <- SearchResult{Name: i.Name, Type: "character", Url: i.Url}:
+			case <- done:
+				return
+			}
+		}
+		if apiRes.Info.Next != nil {
+			fullUrl = *apiRes.Info.Next
+		} else {
+			fullUrl = ""
+		}
+		
 	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusNotFound {
-		return []CharacterRes{}, nil
-	}
-	// could check for status code as well, but the unmarshal will throw an error anyway
-	var apiRes ApiCharRes
-	jsonBody, err := io.ReadAll(response.Body)
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
-		return nil, err
-	}
-	return apiRes.Results, nil
 }
 
 func (s *SearchService) getLocationData(term string) ([]LocationRes, error) {
@@ -239,6 +242,7 @@ func (s *SearchService) getEpisodeData(term string) ([]EpisodeRes, error) {
 func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResult, error) {
 	episodes, err := s.getEpisodeData("")
 	characterPairs := make(map[IdPair]int)
+	// think i could just pass an empty struct here?
 	charactersToRetrieve := make(map[int]bool)
 	var result []PairsResult
 	var idsToRetrieve []int

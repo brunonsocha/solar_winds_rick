@@ -14,8 +14,6 @@ func (app *application) routes() http.Handler {
 	return mux
 }
 
-// will put handlers here instead of making a seperate handlers.go file
-
 func (app *application) search(w http.ResponseWriter, r *http.Request) {
 	term := r.URL.Query().Get("term")
 	limitStr := r.URL.Query().Get("limit")
@@ -67,15 +65,17 @@ func (app *application) topPairs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "incorrect max parameter", http.StatusBadRequest)
 		return
 	}
-	if limitStr == "" {
-		limit = 0
-	} else {
+	limit = 20
+	if limitStr != "" {
 		var err error
-		limit, err = strconv.Atoi(limitStr)
+		val, err := strconv.Atoi(limitStr)
 		if err != nil {
 			app.errorLog.Println(err)
 			http.Error(w, "incorrect limit", http.StatusBadRequest)
 			return
+		}
+		if val > 0 {
+			limit = val
 		}
 	}
 	payload, err := app.characterService.GetPairsPayload(minVal, maxVal, limit)
