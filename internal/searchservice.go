@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"sort"
 	"strconv"
 	"sync"
@@ -107,7 +108,6 @@ type PairsResult struct {
 	Episodes int `json:"episodes"`
 }
 
-// didn't notice pagination. will fix
 func (s *SearchService) GetSearchPayload(term string, limit int) ([]SearchResult, error) {
 	resultChan := make(chan SearchResult, limit)
 	done := make(chan struct{})
@@ -122,32 +122,12 @@ func (s *SearchService) GetSearchPayload(term string, limit int) ([]SearchResult
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		locs, err := s.getLocationData(term)
-		if err != nil {
-			return
-		}
-		for _, i := range locs {
-			select {
-			case resultChan <- SearchResult{Name: i.Name, Type: "location", Url: i.Url}:
-			case <- done:
-				return
-			}
-		}
+		s.getLocationData(term, resultChan, done)
 	}()	
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		eps, err := s.getEpisodeData(term)
-		if err != nil {
-			return
-		}
-		for _, i := range eps {
-			select {
-			case resultChan <- SearchResult{Name: i.Name, Type: "episode", Url: i.Url}:
-			case <- done:
-				return
-			}
-		}
+		s.getEpisodeData(term, resultChan, done)
 	}()	
 	go func() {
 		wg.Wait()
@@ -171,6 +151,7 @@ func (s * SearchService) getCharacterData(term string, results chan<- SearchResu
 		}
 		if response.StatusCode != http.StatusOK {
 			response.Body.Close()
+			return
 		}
 		var apiRes ApiCharRes
 		jsonBody, err := io.ReadAll(response.Body)
@@ -197,53 +178,82 @@ func (s * SearchService) getCharacterData(term string, results chan<- SearchResu
 	}
 }
 
-func (s *SearchService) getLocationData(term string) ([]LocationRes, error) {
+func (s *SearchService) getLocationData(term string, results chan<- SearchResult, done <-chan struct{}) {
 	fullUrl := fmt.Sprintf("%s/location/?name=%s", s.Url, term)
-	response, err := s.Client.Get(fullUrl)
-	if err != nil {
-		return nil, err
+	for fullUrl != ""{
+		response, err := s.Client.Get(fullUrl)
+		if err != nil {
+			return 
+		}
+		if response.StatusCode != http.StatusOK {
+			response.Body.Close()
+			return
+		}
+		var apiRes ApiLocRes
+		jsonBody, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil {
+			return
+		}
+		if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
+			return
+		}
+		for _, i := range apiRes.Results {
+			select {
+			case results <- SearchResult{Name: i.Name, Type: "location", Url: i.Url}:
+			case <- done:
+				return
+			}
+		}
+		if apiRes.Info.Next != nil {
+			fullUrl = *apiRes.Info.Next
+		} else {
+			fullUrl = ""
+		}
 	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusNotFound {
-		return []LocationRes{}, nil
-	}
-	var apiRes ApiLocRes
-	jsonBody, err := io.ReadAll(response.Body)
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
-		return nil, err
-	}
-	return apiRes.Results, nil
 }
 
-func (s *SearchService) getEpisodeData(term string) ([]EpisodeRes, error) {
+func (s *SearchService) getEpisodeData(term string, results chan<- SearchResult, done <-chan struct{}) {
 	fullUrl := fmt.Sprintf("%s/episode/?name=%s", s.Url, term)
-	response, err := s.Client.Get(fullUrl)
-	if err != nil {
-		return nil, err
+	for fullUrl != ""{
+		response, err := s.Client.Get(fullUrl)
+		if err != nil {
+			return
+		}
+		if response.StatusCode != http.StatusOK {
+			response.Body.Close()
+			return
+		}
+		var apiRes ApiEpRes
+		jsonBody, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil {
+			return
+		}
+		if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
+			return
+		}
+		for _, i := range apiRes.Results {
+			select {
+			case results <- SearchResult{Name: i.Name, Type: "episode", Url: i.Url}:
+			case <- done:
+				return
+			}
+		}
+		if apiRes.Info.Next != nil {
+			fullUrl = *apiRes.Info.Next
+		} else {
+			fullUrl = ""
+		}
+		
 	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusNotFound {
-		return []EpisodeRes{}, nil
-	}
-	var apiRes ApiEpRes
-	jsonBody, err := io.ReadAll(response.Body)
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
-		return nil, err
-	}
-	return apiRes.Results, nil
 }
 
 func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResult, error) {
-	episodes, err := s.getEpisodeData("")
+	episodes, err := s.getAllEpisodes("")
 	characterPairs := make(map[IdPair]int)
 	// think i could just pass an empty struct here?
-	charactersToRetrieve := make(map[int]bool)
+	charactersToRetrieve := make(map[int]struct{})
 	var result []PairsResult
 	var idsToRetrieve []int
 	var pairStats []PairStats
@@ -253,8 +263,8 @@ func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResul
 	for _, ep := range episodes {
 		var charIDs []int
 		for _, charUrl := range ep.Characters {
-			// will make regex for this later
-			id, err := strconv.Atoi(charUrl[42:])
+			// no regex needed
+			id, err := strconv.Atoi(path.Base(charUrl))
 			if err != nil {
 				return nil, err
 			}
@@ -284,13 +294,16 @@ func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResul
 		pairStats = pairStats[:limit]
 	}
 	for _, i := range pairStats {
-		charactersToRetrieve[i.Pair.Character1] = true
-		charactersToRetrieve[i.Pair.Character2] = true
+		charactersToRetrieve[i.Pair.Character1] = struct{}{}
+		charactersToRetrieve[i.Pair.Character2] = struct{}{}
 	}
 	for id, _ := range charactersToRetrieve {
 		idsToRetrieve = append(idsToRetrieve, id)
 	}
-	names := s.getCharacters(idsToRetrieve)
+	names, err := s.getCharacters(idsToRetrieve)
+	if err != nil {
+		return nil, err
+	}
 	for _, stat := range pairStats {
 		p := PairsResult{}
 		p.Character1.Name = names[stat.Pair.Character1]
@@ -303,11 +316,41 @@ func (s *SearchService) GetPairsPayload(minVal, maxVal, limit int) ([]PairsResul
 	return result, nil
 }
 
-func (s *SearchService) getCharacters(characterIds []int) map[int]string {
+func (s *SearchService) getAllEpisodes(term string) ([]EpisodeRes, error){
+	fullUrl := fmt.Sprintf("%s/episode/?name=%s", s.Url, term)
+	var results []EpisodeRes
+	for fullUrl != ""{
+		response, err := s.Client.Get(fullUrl)
+		if err != nil {
+			return nil, err
+		}
+		if response.StatusCode == http.StatusNotFound {
+			response.Body.Close()
+			return results, nil
+		}
+		var apiRes ApiEpRes
+		jsonBody, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil {
+			return results, err
+		}
+		if err := json.Unmarshal(jsonBody, &apiRes); err != nil {
+			return results, err
+		}
+		results = append(results, apiRes.Results...)
+		if apiRes.Info.Next != nil {
+			fullUrl = *apiRes.Info.Next
+		} else {
+			fullUrl = ""
+		}
+	}
+	return results, nil
+}
+func (s *SearchService) getCharacters(characterIds []int) (map[int]string, error) {
 	chars := ""
 	result := make(map[int]string)
 	if len(characterIds) == 0 {
-		return result
+		return result, nil
 	}
 	for _, i := range characterIds {
 		chars += fmt.Sprintf("%d,", i)
@@ -316,30 +359,30 @@ func (s *SearchService) getCharacters(characterIds []int) map[int]string {
 	fullUrl := fmt.Sprintf("%s/character/%s", s.Url, chars)
 	response, err := s.Client.Get(fullUrl)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
-		return nil
+		return nil, nil
 	}
 	jsonBody, err := io.ReadAll(response.Body)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	if len(characterIds) == 1 {
 		var char CharacterRes
 		if err := json.Unmarshal(jsonBody, &char); err != nil {
-			return nil
+			return nil, err
 		}
 		result[char.Id] = char.Name
 	} else {
 		var chars []CharacterRes
 		if err := json.Unmarshal(jsonBody, &chars); err != nil {
-			return nil
+			return nil, err
 		}
 		for _, char := range chars {
 			result[char.Id] = char.Name
 		}
 	}
-	return result
+	return result, nil
 }
